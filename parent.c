@@ -1,23 +1,8 @@
 #include "defs.h"
 
-void* create_shared_memory(void* address, size_t size) {
-  // Our memory buffer will be readable and writable:
-  int protection = PROT_READ | PROT_WRITE;
-
-  // The buffer will be shared (meaning other processes can access it), but
-  // anonymous (meaning third-party processes cannot obtain an address for it),
-  // so only this process and its children will be able to use it:
-  int visibility = MAP_ANONYMOUS | MAP_SHARED;
-
-  // The remaining parameters to `mmap()` are not important for this use case,
-  // but the manpage for `mmap` explains their purpose.
-  return mmap(address, size, protection, visibility, 0, 0);
-}
-
-void displaySharedMemory(int countNums, void* shmem) {
+void displaySharedMemory(int countNums, int* shmem) {
   for(int numCounter = 0; numCounter < countNums; numCounter++) {
-    //printf("%d\n", *((int*)shmem) + numCounter);
-    printf("%d\n", *((int *) shmem + numCounter));
+    printf("%d\n", shmem[numCounter]);
   }
 }
 
@@ -31,23 +16,31 @@ int main(int argc, char *argv[]) {
 
   puts("Parent: requests shared memory");
   size_t sizeShmem = sizeof(int) * argc - 1;
-  void* shmem = malloc(sizeShmem);
+  // ftok to generate unique key
+  key_t key = ftok("/home/johnc/Developer/projects/c/danny-r/parentchild/shmfile",65);
+  int shmid = shmget(key, sizeShmem, IPC_CREAT|0666);
 
   puts("Parent: receives shared memory");
-  if(shmem == NULL) {
-    puts("Error allocating memory");
+  if(shmid == -1) {
+    puts("Error requesting shared memory ");
+    printf(" Value of errno: %d\n ", errno);
+    if(errno == EACCES) {
+      puts("Permission denied");
+    }
     exit(1);
   }
 
   puts("Parent: attaches shared memory");
-  create_shared_memory(shmem, sizeShmem);
+  int *shmem = (int*) shmat(shmid,(void*)0,0);
+  if (shmem == (int *)(-1)) {
+    perror("shmat");
+  }
 
   puts("Parent: fills shared memory");
   for(int numCounter = 0; numCounter < argc - 1; numCounter++) {
     int num = atoi(argv[numCounter + 1]);
     printf("NUM IS %d\n", num);
-    int* source = ((int*)shmem) + numCounter;
-    memcpy(source, &num, sizeof(num));
+    shmem[numCounter] = num;
   }
 
   puts("Parent: displays shared memory");
@@ -74,11 +67,11 @@ int main(int argc, char *argv[]) {
     displaySharedMemory(argc - 1, shmem);
 
     printf("Child %d: displays private unique id\n", uniqueId);
-    printf("Child %d: displays its corresponding value %d\n", uniqueId, ((int*)shmem)[uniqueId - 1]);
+    printf("Child %d: displays its corresponding value %d\n", uniqueId, shmem[uniqueId - 1]);
     printf("Child %d: updates shared memory\n", uniqueId);
-    int childValue = ((int*)shmem)[uniqueId - 1];
+    int childValue = shmem[uniqueId - 1];
     childValue = childValue * uniqueId;
-    memcpy(((int*)shmem) + (uniqueId - 1), &childValue, sizeof(int));
+    shmem[uniqueId - 1] = childValue;
 
     printf("Child %d: displays shared memory\n", uniqueId);
     displaySharedMemory(argc - 1, shmem);
@@ -101,10 +94,10 @@ int main(int argc, char *argv[]) {
   displaySharedMemory(argc - 1, shmem);
 
   puts("Parent: detaches shared memory");
-  munmap(shmem, sizeShmem);
+  shmdt(shmem);
 
   puts("Parent: removes shared memory");
-  free(shmem);
+  shmctl(shmid,IPC_RMID,NULL);
 
   puts("Parent: finished");
 
