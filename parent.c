@@ -1,21 +1,21 @@
 #include "defs.h"
 
-void displaySharedMemory(int countNums, int* shmem) {
-  for(int numCounter = 0; numCounter < countNums; numCounter++) {
-    printf("%d\n", shmem[numCounter]);
+// The one and only global variable
+int uniqueId;
+
+int usage(int argc, char *argv[]) {
+  puts("Parent: validate command line");
+  if(argc < 2 || argc > 8) {
+    printf("Usage: %s n ... (up to 7 digits)", argv[0]);
+    return FALSE;
   }
+  // See man strtol for how to validate args for numbers
+  return TRUE;
 }
 
-int main(int argc, char *argv[]) {
-  // Use unbuffered output
-  setvbuf(stdout, NULL, _IONBF, 0);
-
-  puts("Parent: starts");
-
-  puts("Parent: validate command line TODO");
-
+int requestSharedMemory(int countOfNumbers) {
   puts("Parent: requests shared memory");
-  size_t sizeShmem = sizeof(int) * argc - 1;
+  size_t sizeShmem = sizeof(int) * countOfNumbers;
   // ftok to generate unique key
   key_t key = ftok("/home/johnc/Developer/projects/c/danny-r/parentchild/shmfile",65);
   int shmid = shmget(key, sizeShmem, IPC_CREAT|0666);
@@ -30,25 +30,69 @@ int main(int argc, char *argv[]) {
     exit(1);
   }
 
+  return shmid;
+}
+
+int* receiveSharedMemory(int shmid) {
   puts("Parent: attaches shared memory");
   int *shmem = (int*) shmat(shmid,(void*)0,0);
   if (shmem == (int *)(-1)) {
     perror("shmat");
+    exit(2);
   }
 
+  return shmem;
+}
+
+void fillSharedMemory(int* shmem, int countOfNumbers, char* argv[]) {
   puts("Parent: fills shared memory");
-  for(int numCounter = 0; numCounter < argc - 1; numCounter++) {
+  for(int numCounter = 0; numCounter < countOfNumbers; numCounter++) {
     int num = atoi(argv[numCounter + 1]);
-    printf("NUM IS %d\n", num);
     shmem[numCounter] = num;
   }
+}
 
-  puts("Parent: displays shared memory");
-  displaySharedMemory(argc - 1, shmem);
+void displaySharedMemory(char* callerName, int* shmem, int countOfNumbers) {
+  printf("%s: displays shared memory\n", callerName);
+  for(int numCounter = 0; numCounter < countOfNumbers; numCounter++) {
+    printf("\t %s: read %d\n", callerName, shmem[numCounter]);
+  }
+}
 
-  pid_t parentPid = getpid();
-  int uniqueId = 1;
-  for(int pidCounter = 0; pidCounter < argc - 1; pidCounter++) {
+int performChildWork(int* shmem, int uniqueId, int countOfNumbers) {
+  // Set trace message to begin with Child #, where # is the uniqueId
+  char childDescription[10];
+  sprintf(childDescription, "Child %d", uniqueId);
+
+  displaySharedMemory(childDescription, shmem, countOfNumbers);
+
+  printf("Child %d: displays private unique id\n", uniqueId);
+  printf("Child %d: displays its corresponding value %d\n", uniqueId, shmem[uniqueId - START_UNIQUE_ID]);
+  printf("Child %d: updates shared memory\n", uniqueId);
+  int childValue = shmem[uniqueId - START_UNIQUE_ID];
+  childValue = childValue * uniqueId;
+  shmem[uniqueId - START_UNIQUE_ID] = childValue;
+
+  displaySharedMemory(childDescription, shmem, countOfNumbers);
+
+  int exitCode = 100 + uniqueId;
+  return exitCode;
+}
+
+void waitForChildren() {
+  puts("Parent: waits for (each) child");
+  pid_t childPid;
+  int status;
+  while ((childPid = wait(&status)) > 0) {
+    printf("Parent: detects (each) child completion for child PID %d\n", childPid);
+    // printf("Parent: displays (each) child PID & exit code\n");
+    printf("Parent: child %d exited with code %d\n", childPid, WEXITSTATUS(status));
+  }
+}
+
+void spawnChildProcesses(int countOfNumbers, pid_t parentPid) {
+  uniqueId = START_UNIQUE_ID;
+  for(int pidCounter = 0; pidCounter < countOfNumbers; pidCounter++) {
     if(getpid() == parentPid) {
       puts("Parent: forks (each) child process");
       int childPid = fork();
@@ -59,69 +103,60 @@ int main(int argc, char *argv[]) {
       }
     }
   }
+}
 
-  // All child processes have been forked
-  pid_t myPid = getpid();
-  if(myPid != parentPid) {
-    printf("Child %d: displays shared memory\n", uniqueId);
-    displaySharedMemory(argc - 1, shmem);
-
-    printf("Child %d: displays private unique id\n", uniqueId);
-    printf("Child %d: displays its corresponding value %d\n", uniqueId, shmem[uniqueId - 1]);
-    printf("Child %d: updates shared memory\n", uniqueId);
-    int childValue = shmem[uniqueId - 1];
-    childValue = childValue * uniqueId;
-    shmem[uniqueId - 1] = childValue;
-
-    printf("Child %d: displays shared memory\n", uniqueId);
-    displaySharedMemory(argc - 1, shmem);
-
-    int exitCode = 100 + uniqueId;
-    printf("Child %d: exits with code %d\n", uniqueId, exitCode);
-    exit(exitCode);
-  }
-
-  puts("Parent: waits for (each) child");
-  pid_t childPid;
-  int status;
-  while ((childPid = wait(&status)) > 0) {
-    printf("Parent: detects (each) child completion for child PID %d\n", childPid);
-    printf("Parent: displays (each) child PID & exit code\n");
-    printf("Parent: child %d exited with code %d\n", childPid, WEXITSTATUS(status));
-  }
-
-  puts("Parent: displays shared memory");
-  displaySharedMemory(argc - 1, shmem);
-
+void detachSharedMemory(int* shmem) {
   puts("Parent: detaches shared memory");
   shmdt(shmem);
+}
 
+void removeSharedMemory(int shmid, int* shmem) {
   puts("Parent: removes shared memory");
   shmctl(shmid,IPC_RMID,NULL);
+}
 
-  puts("Parent: finished");
+int main(int argc, char *argv[]) {
+  // Use unbuffered output
+  setvbuf(stdout, NULL, _IONBF, 0);
 
   // Flush output buffer when using buffered output
   // See https://unix.stackexchange.com/questions/447898/why-does-a-program-with-fork-sometimes-print-its-output-multiple-times
   // fflush(stdout);
 
+  // Trace messages
+  puts("Parent: starts");
 
-
-/*
-char* parent_message = "hello";  // parent process will write this message
-char* child_message = "goodbye"; // child process will then write this one
-
-  int pid = fork();
-
-  if (pid == 0) {
-    printf("Child read: %s\n", (char*)shmem);
-    memcpy(shmem, child_message, sizeof(child_message));
-    printf("Child wrote: %s\n", (char*)shmem);
-
-  } else {
-    printf("Parent read: %s\n", (char*)shmem);
-    sleep(1);
-    printf("After 1s, parent read: %s\n", (char*)shmem);
+  if(!usage(argc, argv)) {
+    exit(1);
   }
-*/
+
+  int shmid = requestSharedMemory(argc - 1);
+
+  int* shmem = receiveSharedMemory(shmid);
+
+  fillSharedMemory(shmem, argc - 1, argv);
+
+  displaySharedMemory("Parent", shmem, argc - 1);
+
+  // Spawn child processes
+  pid_t parentPid = getpid();
+  spawnChildProcesses(argc - 1, parentPid);
+
+  // All child processes have been forked
+  pid_t myPid = getpid();
+  if(myPid != parentPid) {
+    int exitCode = performChildWork(shmem, uniqueId, argc - 1);
+    printf("Child %d: exits with code %d\n", uniqueId, exitCode);
+    exit(exitCode);
+  }
+
+  waitForChildren();
+
+  displaySharedMemory("Parent", shmem, argc - 1);
+
+  detachSharedMemory(shmem);
+
+  removeSharedMemory(shmid, shmem);
+
+  puts("Parent: finished");
 }

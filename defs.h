@@ -1,9 +1,11 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <unistd.h>
-#include <errno.h> 
-#include <sys/mman.h>
-#include <sys/types.h>
+#include <unistd.h> // Needed for getpid() and fork()
+#include <errno.h>
 #include <sys/wait.h>
 #include <sys/shm.h>
+
+#define TRUE 1
+#define FALSE 0
+#define START_UNIQUE_ID 10
