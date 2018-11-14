@@ -1,6 +1,6 @@
 #include "defs.h"
 
-void* create_shared_memory(size_t size) {
+void* create_shared_memory(void* address, size_t size) {
   // Our memory buffer will be readable and writable:
   int protection = PROT_READ | PROT_WRITE;
 
@@ -11,7 +11,7 @@ void* create_shared_memory(size_t size) {
 
   // The remaining parameters to `mmap()` are not important for this use case,
   // but the manpage for `mmap` explains their purpose.
-  return mmap(NULL, size, protection, visibility, 0, 0);
+  return mmap(address, size, protection, visibility, 0, 0);
 }
 
 void displaySharedMemory(int countNums, void* shmem) {
@@ -30,12 +30,17 @@ int main(int argc, char *argv[]) {
   puts("Parent: validate command line TODO");
 
   puts("Parent: requests shared memory");
-
   size_t sizeShmem = sizeof(int) * argc - 1;
-  void* shmem = create_shared_memory(sizeShmem);
+  void* shmem = malloc(sizeShmem);
+
   puts("Parent: receives shared memory");
+  if(shmem == NULL) {
+    puts("Error allocating memory");
+    exit(1);
+  }
 
   puts("Parent: attaches shared memory");
+  create_shared_memory(shmem, sizeShmem);
 
   puts("Parent: fills shared memory");
   for(int numCounter = 0; numCounter < argc - 1; numCounter++) {
@@ -99,6 +104,7 @@ int main(int argc, char *argv[]) {
   munmap(shmem, sizeShmem);
 
   puts("Parent: removes shared memory");
+  free(shmem);
 
   puts("Parent: finished");
 
