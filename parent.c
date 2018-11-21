@@ -16,8 +16,7 @@ int usage(int argc, char *argv[]) {
 int requestSharedMemory(int countOfNumbers) {
   puts("Parent: requests shared memory");
   size_t sizeShmem = sizeof(int) * countOfNumbers;
-  // ftok to generate unique key
-  key_t key = ftok("/home/johnc/Developer/projects/c/danny-r/parentchild/shmfile",65);
+  key_t key = IPC_PRIVATE;  // Accessible by child processes
   int shmid = shmget(key, sizeShmem, IPC_CREAT|0666);
 
   puts("Parent: receives shared memory");
@@ -110,7 +109,7 @@ void detachSharedMemory(int* shmem) {
   shmdt(shmem);
 }
 
-void removeSharedMemory(int shmid, int* shmem) {
+void removeSharedMemory(int shmid) {
   puts("Parent: removes shared memory");
   shmctl(shmid,IPC_RMID,NULL);
 }
@@ -130,33 +129,35 @@ int main(int argc, char *argv[]) {
     exit(1);
   }
 
-  int shmid = requestSharedMemory(argc - 1);
+  int numParams = argc - 1;
+
+  int shmid = requestSharedMemory(numParams);
 
   int* shmem = receiveSharedMemory(shmid);
 
-  fillSharedMemory(shmem, argc - 1, argv);
+  fillSharedMemory(shmem, numParams, argv);
 
-  displaySharedMemory("Parent", shmem, argc - 1);
+  displaySharedMemory("Parent", shmem, numParams);
 
   // Spawn child processes
   pid_t parentPid = getpid();
-  spawnChildProcesses(argc - 1, parentPid);
+  spawnChildProcesses(numParams, parentPid);
 
   // All child processes have been forked
   pid_t myPid = getpid();
   if(myPid != parentPid) {
-    int exitCode = performChildWork(shmem, uniqueId, argc - 1);
+    int exitCode = performChildWork(shmem, uniqueId, numParams);
     printf("Child %d: exits with code %d\n", uniqueId, exitCode);
     exit(exitCode);
   }
 
   waitForChildren();
 
-  displaySharedMemory("Parent", shmem, argc - 1);
+  displaySharedMemory("Parent", shmem, numParams);
 
   detachSharedMemory(shmem);
 
-  removeSharedMemory(shmid, shmem);
+  removeSharedMemory(shmid);
 
   puts("Parent: finished");
 }
