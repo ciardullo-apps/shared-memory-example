@@ -78,24 +78,26 @@ int performChildWork(int* shmem, int uniqueId, int countOfNumbers) {
   return exitCode;
 }
 
-void waitForChildren() {
-  puts("Parent: waits for (each) child");
+void waitForChildren(int numParams, int pids[numParams]) {
   pid_t childPid;
   int status;
-  while ((childPid = wait(&status)) > 0) {
-    printf("Parent: detects (each) child completion for child PID %d\n", childPid);
+  for(int pidCounter = 0; pidCounter < numParams; pidCounter++) {
+    printf("Parent: waits for (each) child pid %d\n", pids[pidCounter]);
+    waitpid(pids[pidCounter], &status, 0);
+    printf("Parent: detects (each) child completion for child PID %d\n", pids[pidCounter]);
     // printf("Parent: displays (each) child PID & exit code\n");
-    printf("Parent: child %d exited with code %d\n", childPid, WEXITSTATUS(status));
+    printf("Parent: child %d exited with code %d\n", pids[pidCounter], WEXITSTATUS(status));
   }
 }
 
-void spawnChildProcesses(int countOfNumbers, pid_t parentPid) {
+void spawnChildProcesses(int countOfNumbers, pid_t parentPid, int pids[countOfNumbers]) {
   uniqueId = START_UNIQUE_ID;
   for(int pidCounter = 0; pidCounter < countOfNumbers; pidCounter++) {
     if(getpid() == parentPid) {
       puts("Parent: forks (each) child process");
       int childPid = fork();
       if(childPid != 0) {
+        pids[pidCounter] = childPid;
         uniqueId++;
       } else {
         printf("Child %d: starts PID %d\n", uniqueId, getpid());
@@ -141,7 +143,8 @@ int main(int argc, char *argv[]) {
 
   // Spawn child processes
   pid_t parentPid = getpid();
-  spawnChildProcesses(numParams, parentPid);
+  int pids[numParams];
+  spawnChildProcesses(numParams, parentPid, pids);
 
   // All child processes have been forked
   pid_t myPid = getpid();
@@ -151,7 +154,7 @@ int main(int argc, char *argv[]) {
     exit(exitCode);
   }
 
-  waitForChildren();
+  waitForChildren(numParams, pids);
 
   displaySharedMemory("Parent", shmem, numParams);
 
